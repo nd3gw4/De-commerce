@@ -21,11 +21,11 @@ const routes = [
   { path: '/', name: 'Home', component: Home },
   { path: '/products', name: 'ProductList', component: ProductList },
   { path: '/products/:id', name: 'ProductDetail', component: ProductDetail, props: true },
-  { path: '/cart', name: 'Cart', component: Cart },
-  { path: '/checkout', name: 'Checkout', component: Checkout },
-  { path: '/orders', name: 'OrderHistory', component: OrderHistory },
-  { path: '/orders/:id', name: 'OrderDetail', component: OrderDetail, props: true },
-  { path: '/profile', name: 'Profile', component: Profile },
+  { path: '/cart', name: 'Cart', component: Cart, meta: { requiresAuth: true } },
+  { path: '/checkout', name: 'Checkout', component: Checkout, meta: { requiresAuth: true } },
+  { path: '/orders', name: 'OrderHistory', component: OrderHistory, meta: { requiresAuth: true } },
+  { path: '/orders/:id', name: 'OrderDetail', component: OrderDetail, props: true, meta: { requiresAuth: true } },
+  { path: '/profile', name: 'Profile', component: Profile, meta: { requiresAuth: true } },
   { path: '/login', name: 'Login', component: Login },
   { path: '/register', name: 'Register', component: Register },
   { path: '/reset-password', name: 'ResetPassword', component: ResetPassword },
@@ -40,14 +40,26 @@ const router = createRouter({
   routes,
 });
 
-// Navigation guard to redirect authenticated users
+// Navigation guard for authentication-protected routes
 router.beforeEach((to, from, next) => {
   const auth = useAuthStore();
+
+  if (to.meta.requiresAuth && !auth.isAuthenticated) {
+    next({ name: 'Login', query: { next: to.fullPath } });
+    return;
+  }
+
+  if ((to.name === 'Login' || to.name === 'Register') && auth.isAuthenticated) {
+    next({ name: 'Profile' });
+    return;
+  }
+
   if (to.name === 'Home' && auth.isAuthenticated) {
     next({ name: 'Profile' });
-  } else {
-    next();
+    return;
   }
+
+  next();
 });
 
 export default router;

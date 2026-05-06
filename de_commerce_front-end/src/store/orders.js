@@ -15,7 +15,7 @@
  */
 
 import { defineStore } from 'pinia';
-import axios from 'axios';
+import api from '../services/api';
 
 /**
  * useOrderStore: User orders state store
@@ -191,12 +191,8 @@ export const useOrderStore = defineStore('orders', {
      */
     async load() {
       try {
-        const response = await axios.get('/api/orders/', {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-          },
-        });
-        this.orders = response.data;
+        const response = await api.get('orders/');
+      this.orders = response.data;
       } catch (error) {
         console.error('Error loading orders:', error);
       }

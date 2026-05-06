@@ -176,3 +176,16 @@ export function fetchOrders() {
 export function fetchOrder(orderId) {
   return api.get(`orders/${orderId}/`);
 }
+
+/**
+ * Create a new order on the backend.
+ *
+ * API: POST /api/create-order/
+ * Access: REQUIRES LOGIN (IsAuthenticated)
+ *
+ * @param {Object} data - Order payload
+ * @returns {Promise} Axios promise
+ */
+export function createOrder(data) {
+  return api.post('create-order/', data);
+}
