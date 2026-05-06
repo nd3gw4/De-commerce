@@ -11,9 +11,8 @@
       <div class="form-section-payment">
         <h3>Payment Type</h3>
         <select v-model="paymentType" required>
-          <option value="credit">Credit Card</option>
-          <option value="paypal">PayPal</option>
-          <option value="cod">Cash on Delivery</option>
+          <option value="Credit Card">Credit Card</option>
+          <option value="PayPal">PayPal</option>
         </select>
       </div>
       <div class="form-section-summary">
@@ -24,6 +23,10 @@
           </li>
         </ul>
         <p><strong>Total: {{ formatPrice(total) }}</strong></p>
+      </div>
+      <div class="order-messages">
+        <p v-if="orderSuccess" class="success-message">{{ orderSuccess }}</p>
+        <p v-if="orderError" class="error-message">{{ orderError }}</p>
       </div>
       <button type="submit">Place Order</button>
     </form>
@@ -36,6 +39,7 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 import { useCartStore } from '../store/cart';
 import { storeToRefs } from 'pinia';
+import { createOrder } from '../services/order';
 
 const auth = useAuthStore();
 const { isAuthenticated } = storeToRefs(auth);
@@ -43,12 +47,15 @@ const cartStore = useCartStore();
 cartStore.load();
 const cart = ref({ items: cartStore.items.map(i => ({ id: i.product.id, product: i.product, quantity: i.quantity })) });
 const billing = ref({ name: '', address: '', phone: '' });
-const paymentType = ref('credit');
+const paymentType = ref('Credit Card');
 const total = ref(0);
+const orderError = ref('');
+const orderSuccess = ref('');
 const router = useRouter();
 
 // Calculate total
-total.value = cart.value.items.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+const calculateTotal = () => cart.value.items.reduce((sum, item) => sum + (item.product.price * item.quantity), 0);
+total.value = calculateTotal();
 
 function formatPrice(price) {
   if (price == null) return '';
@@ -58,41 +65,32 @@ function formatPrice(price) {
 function submitOrder() {
   // Require login before placing order
   if (!isAuthenticated.value) {
-    // Redirect to login; preserve next step if desired
     router.push('/login');
     return;
   }
 
-  // Save order logic here (API call)
+  orderError.value = '';
+  orderSuccess.value = '';
+
   const orderData = {
-    billing: billing.value,
-    paymentType: paymentType.value,
-    items: cart.value.items.map(item => ({
-      productId: item.id,
-      quantity: item.quantity
-    }))
+    shipping_address: billing.value.address,
+    phone_number: billing.value.phone,
+    payment_method: paymentType.value,
   };
 
-  fetch('/api/orders/', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${auth.token}`
-    },
-    body: JSON.stringify(orderData)
-  })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error('Failed to place order');
-      }
-      return response.json();
-    })
-    .then(data => {
-      console.log('Order placed successfully:', data);
+  createOrder(orderData)
+    .then(() => {
+      orderSuccess.value = 'Your order has been placed successfully.';
       cartStore.clear();
       router.push('/orders');
     })
-    .catch(error => {
+    .catch((error) => {
+      const response = error.response;
+      if (response && response.data) {
+        orderError.value = response.data.message || JSON.stringify(response.data);
+      } else {
+        orderError.value = 'Failed to place order. Please try again.';
+      }
       console.error('Error placing order:', error);
     });
 }
@@ -139,7 +137,7 @@ function submitOrder() {
 }
 
 .form-section-summary {
-  color: var(--text-color);
+  color: var(--text-color );
 }
 
 .form-section-billing,
@@ -184,5 +182,24 @@ button[type="submit"]:hover {
   background: var(--background-color);
   border: 1.4px solid var(--text-color);
   color: var(--extra-color);
+}
+
+.order-messages {
+  margin: 1rem 1.5rem;
+}
+
+.success-message {
+  color: #0f5132;
+  background: #d1e7dd;
+  border: 1px solid #badbcc;
+  padding: 0.8rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.error-message {
+  color: #842029;
+  background: #f8d7da;
+  border: 1px solid #f5c2c7;
+  padding: 0.8rem 1rem;
 }
 </style>

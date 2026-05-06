@@ -72,7 +72,6 @@ async function handleRegister() {
       password2: form.value.password2
     });
     success.value = true;
-    localStorage.setItem('isAuthenticated', 'true');
     setTimeout(() => router.push('/login'), 1500);
   } catch (err) {
     // Improved error extraction
