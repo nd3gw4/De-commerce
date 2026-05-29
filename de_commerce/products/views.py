@@ -18,11 +18,16 @@ IMPORTANT: Views are organized by permission requirements:
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.throttling import UserRateThrottle
 from django.contrib.auth import authenticate, login
 from django.contrib.auth.models import User
-from .serializers import RegisterSerializer, LoginSerializer, ProductSerializer
-from .models import Product
+from django.shortcuts import get_object_or_404
+from django.db import transaction
+from django.core.cache import cache
+
+from .serializers import RegisterSerializer, LoginSerializer, ProductSerializer, CartSerializer, UserSerializer
+from .models import Product, Cart, CartItem
 
 # ============================================================================
 # AUTHENTICATION VIEWS (NO LOGIN REQUIRED)
@@ -106,13 +111,49 @@ class LoginAPIView(APIView):
 	- Session cookie has httponly flag (not accessible via JavaScript)
 	"""
 	permission_classes = [AllowAny]
+	# Apply a dedicated login throttle (scope 'login')
+	throttle_scope = 'login'
+    
+	class LoginRateThrottle(UserRateThrottle):
+		scope = 'login'
+
+	throttle_classes = [LoginRateThrottle]
 	def post(self, request):
 		serializer = LoginSerializer(data=request.data)
 		if serializer.is_valid():
-			user = authenticate(username=serializer.validated_data['username'], password=serializer.validated_data['password'])
+			username = serializer.validated_data['username']
+			password = serializer.validated_data['password']
+
+			# Basic lockout via cache per username+ip to mitigate brute-force
+			ip = request.META.get('HTTP_X_FORWARDED_FOR', request.META.get('REMOTE_ADDR', 'unknown')).split(',')[0].strip()
+			user_key = f'login_fail:{username}:{ip}'
+			ip_key = f'login_fail_ip:{ip}'
+			MAX_FAIL = 5
+			LOCKOUT_TTL = 600  # seconds
+
+			user_fail_count = cache.get(user_key, 0)
+			ip_fail_count = cache.get(ip_key, 0)
+			if user_fail_count >= MAX_FAIL or ip_fail_count >= (MAX_FAIL * 3):
+				return Response({'success': False, 'message': 'Too many failed login attempts. Try again later.'}, status=429)
+
+			user = authenticate(username=username, password=password)
 			if user:
 				login(request, user)
+				# reset fail counters
+				cache.delete(user_key)
+				cache.delete(ip_key)
+				# Merge any anonymous session cart into user's persistent cart
+				try:
+					merge_session_cart(request, user)
+				except Exception as e:
+					# Do not fail login if merge fails; log for server-side debugging
+					print(f"Session cart merge error: {e}")
+
 				return Response({'success': True, 'message': 'Login successful.'}, status=status.HTTP_200_OK)
+
+			# authentication failed: increment counters
+			cache.incr(user_key) if cache.get(user_key) is not None else cache.set(user_key, 1, LOCKOUT_TTL)
+			cache.incr(ip_key) if cache.get(ip_key) is not None else cache.set(ip_key, 1, LOCKOUT_TTL)
 			return Response({'success': False, 'message': 'Invalid credentials.'}, status=status.HTTP_401_UNAUTHORIZED)
 		return Response({'success': False, 'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -262,4 +303,78 @@ class SessionCartAPIView(APIView):
 		request.session['cart'] = {}
 		request.session.modified = True
 		return Response({'success': True, 'message': 'Session cart cleared.'}, status=status.HTTP_200_OK)
+
+
+def merge_session_cart(request, user):
+	"""
+	Merge anonymous session cart into the authenticated user's persistent DB cart.
+
+	Session cart format: { '<product_id>': quantity, ... }
+	Behavior:
+	- Create Cart for user if not exists
+	- For each product in session cart: add quantity to existing CartItem or create new
+	- Ignore invalid product ids
+	- Clear session cart after successful merge
+	"""
+	session_cart = request.session.get('cart')
+	if not session_cart:
+		return
+
+	with transaction.atomic():
+		cart, created = Cart.objects.get_or_create(user=user)
+
+		product_ids = [int(pid) for pid in session_cart.keys() if str(pid).isdigit()]
+		products = Product.objects.filter(id__in=product_ids)
+		prod_map = {p.id: p for p in products}
+
+		for pid_str, qty in session_cart.items():
+			try:
+				pid = int(pid_str)
+				quantity = int(qty)
+			except (ValueError, TypeError):
+				continue
+			product = prod_map.get(pid)
+			if not product:
+				continue
+
+			cart_item, created_item = CartItem.objects.get_or_create(cart=cart, product=product, defaults={'quantity': quantity})
+			if not created_item:
+				# Update existing quantity
+				cart_item.quantity = cart_item.quantity + quantity
+				cart_item.save()
+
+		# Clear session cart
+		request.session['cart'] = {}
+		request.session.modified = True
+
+
+class MeAPIView(APIView):
+	"""
+	GET /api/me/ - Return authenticated user's profile and canonical cart.
+	If unauthenticated, returns {'authenticated': False}
+	"""
+	permission_classes = [AllowAny]
+
+	def get(self, request):
+		if not request.user or not request.user.is_authenticated:
+			# If anonymous but has session cart, return session cart items
+			session_cart = request.session.get('cart', {})
+			items = []
+			if session_cart:
+				product_ids = [int(pid) for pid in session_cart.keys() if str(pid).isdigit()]
+				products = Product.objects.filter(id__in=product_ids)
+				prod_map = {p.id: p for p in products}
+				for pid_str, qty in session_cart.items():
+					pid = int(pid_str) if str(pid_str).isdigit() else None
+					if pid and pid in prod_map:
+						items.append({'product': ProductSerializer(prod_map[pid]).data, 'quantity': qty})
+			return Response({'authenticated': False, 'cart': {'items': items}})
+
+		# Authenticated user: return profile and persistent cart
+		user = request.user
+		user_data = UserSerializer(user).data
+		# Fetch or create cart
+		cart, _ = Cart.objects.get_or_create(user=user)
+		cart_data = CartSerializer(cart).data
+		return Response({'authenticated': True, 'user': user_data, 'cart': cart_data})
 

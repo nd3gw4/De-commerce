@@ -22,6 +22,7 @@ from .serializers import CategorySerializer, ProductSerializer, CartSerializer, 
 from django.core.mail import send_mail
 from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
+from django.db import transaction
 
 # ============================================================================
 # PUBLIC VIEWSETS (NO LOGIN REQUIRED - AllowAny)
@@ -270,32 +271,38 @@ class OrderViewSet(viewsets.ReadOnlyModelViewSet):
 				status=status.HTTP_400_BAD_REQUEST
 			)
 		
-		# Create the order
+		# Create the order atomically and validate stock
 		order_data = request.data.copy()
 		order_data['user'] = user.id
 		order_data['status'] = 'ordered'  # Default status
-		
-		serializer = self.get_serializer(data=order_data)
-		serializer.is_valid(raise_exception=True)
-		order = serializer.save()
-		
-		# Create order items from cart items
-		order_items = []
-		for cart_item in cart_items:
-			order_item = OrderItem.objects.create(
-				order=order,
-				product=cart_item.product,
-				quantity=cart_item.quantity,
-				price=cart_item.product.price  # Store current price at time of order
-			)
-			order_items.append(order_item)
-		
-		# Clear the cart
-		cart_items.delete()
-		
-		# Return the order with items populated
-		order_serializer = self.get_serializer(order)
-		return Response(order_serializer.data, status=status.HTTP_201_CREATED)
+
+		with transaction.atomic():
+			# basic stock/status check: prevent ordering products marked 'Out of Stock'
+			for cart_item in cart_items:
+				if getattr(cart_item.product, 'stock_status', '').lower() == 'out of stock':
+					return Response({'error': f"Product {cart_item.product.name} is out of stock."}, status=status.HTTP_400_BAD_REQUEST)
+
+			serializer = self.get_serializer(data=order_data)
+			serializer.is_valid(raise_exception=True)
+			order = serializer.save()
+
+			# Create order items from cart items
+			order_items = []
+			for cart_item in cart_items:
+				order_item = OrderItem.objects.create(
+					order=order,
+					product=cart_item.product,
+					quantity=cart_item.quantity,
+					price=cart_item.product.price  # Store current price at time of order
+				)
+				order_items.append(order_item)
+
+			# Clear the cart
+			cart_items.delete()
+
+			# Return the order with items populated
+			order_serializer = self.get_serializer(order)
+			return Response(order_serializer.data, status=status.HTTP_201_CREATED)
 
 @api_view(['POST'])
 def create_order(request):
@@ -357,26 +364,31 @@ def create_order(request):
 	
 	serializer = OrderSerializer(data=order_data)
 	if serializer.is_valid():
-		order = serializer.save()
-		
-		# Create order items from cart items
-		order_items = []
-		for cart_item in cart_items:
-			order_item = OrderItem.objects.create(
-				order=order,
-				product=cart_item.product,
-				quantity=cart_item.quantity,
-				price=cart_item.product.price  # Store current price at time of order
-			)
-			order_items.append(order_item)
-		
-		# Clear the cart
-		cart_items.delete()
-		
-		# Return the order with items populated
-		order_serializer = OrderSerializer(order)
-		return Response(order_serializer.data, status=status.HTTP_201_CREATED)
-	
+		with transaction.atomic():
+			for cart_item in cart_items:
+				if getattr(cart_item.product, 'stock_status', '').lower() == 'out of stock':
+					return Response({'error': f"Product {cart_item.product.name} is out of stock."}, status=status.HTTP_400_BAD_REQUEST)
+
+			order = serializer.save()
+
+			# Create order items from cart items
+			order_items = []
+			for cart_item in cart_items:
+				order_item = OrderItem.objects.create(
+					order=order,
+					product=cart_item.product,
+					quantity=cart_item.quantity,
+					price=cart_item.product.price  # Store current price at time of order
+				)
+				order_items.append(order_item)
+
+			# Clear the cart
+			cart_items.delete()
+
+			# Return the order with items populated
+			order_serializer = OrderSerializer(order)
+			return Response(order_serializer.data, status=status.HTTP_201_CREATED)
+
 	return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])

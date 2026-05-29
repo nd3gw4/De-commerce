@@ -55,6 +55,16 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.BasicAuthentication',
     ],
+    # Throttling to mitigate brute-force and abusive requests
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/day',
+        'user': '1000/day',
+        'login': '5/minute',
+    },
 }
 
 MIDDLEWARE = [
@@ -91,6 +101,7 @@ CSRF_TRUSTED_ORIGINS = getattr(globals(), "CSRF_TRUSTED_ORIGINS", []) + default_
 CSRF_COOKIE_SECURE = False  # Change to True in production with HTTPS
 CSRF_COOKIE_HTTPONLY = False  # Must be False - frontend JavaScript needs to read this cookie
 CSRF_COOKIE_SAMESITE = 'Lax'  # 'Lax' is safer than 'Strict' for cross-origin requests
+SESSION_COOKIE_HTTPONLY = True
 
 ROOT_URLCONF = 'de_commerce.urls'
 

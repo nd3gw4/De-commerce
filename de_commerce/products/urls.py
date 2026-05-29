@@ -58,6 +58,9 @@ urlpatterns = [
     
     # POST /api/logout/ - Logout user and destroy session (IsAuthenticated)
     path('api/logout/', logout_view, name='api-logout'),
+
+    # GET /api/me/ - Return authenticated user profile + canonical cart (or session cart if anonymous)
+    path('api/me/', views.MeAPIView.as_view(), name='api-me'),
     
     # Auto-generated routes from DefaultRouter (categories, products, carts, orders)
     path('', include(router.urls)),

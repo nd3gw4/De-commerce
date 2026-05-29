@@ -1,4 +1,5 @@
 from rest_framework.test import APIClient
+from django.test import TestCase
 class OrderStatusTest(TestCase):
 	def setUp(self):
 		self.user = User.objects.create_user(username='apitest', password='pass')
@@ -72,3 +73,32 @@ class ProductListViewTest(TestCase):
 		response = self.client.get(reverse('products:product_list'))
 		self.assertEqual(response.status_code, 200)
 		self.assertContains(response, 'Shirt')
+
+
+class SessionCartMergeTest(TestCase):
+	def setUp(self):
+		self.client = APIClient()
+		self.user = User.objects.create_user(username='mergeuser', password='pass')
+		self.category = Category.objects.create(name='MergeCat')
+		self.product = Product.objects.create(name='MergeProd', description='desc', price=3.50, category=self.category)
+
+	def test_session_cart_merges_on_login(self):
+		# Set session cart as anonymous
+		session = self.client.session
+		session['cart'] = {str(self.product.id): 2}
+		session.save()
+
+		# Login via API
+		response = self.client.post('/api/login/', {'username': 'mergeuser', 'password': 'pass'}, format='json')
+		self.assertEqual(response.status_code, 200)
+
+		# After login, /api/me/ should show authenticated true and cart items persisted
+		me = self.client.get('/api/me/')
+		self.assertEqual(me.status_code, 200)
+		self.assertTrue(me.data.get('authenticated'))
+		cart = me.data.get('cart')
+		self.assertIsNotNone(cart)
+		items = cart.get('items', [])
+		self.assertEqual(len(items), 1)
+		self.assertEqual(items[0]['product']['id'], self.product.id)
+		self.assertEqual(items[0]['quantity'], 2)

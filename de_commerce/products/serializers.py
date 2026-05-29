@@ -18,6 +18,7 @@ All serializers support the API endpoints defined in api.py
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from .models import Category, Product, Cart, CartItem, Order, OrderItem
+from django.contrib.auth.models import User
 
 # ============================================================================
 # AUTHENTICATION SERIALIZERS (NO LOGIN REQUIRED for registration/login)
@@ -144,3 +145,12 @@ class OrderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Order
         fields = ['id', 'user', 'created_at', 'updated_at', 'shipping_address', 'phone_number', 'payment_method', 'status', 'items']
+
+
+class UserSerializer(serializers.ModelSerializer):
+    """
+    Minimal serializer for authenticated user profile data returned by /api/me/
+    """
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email', 'date_joined']
