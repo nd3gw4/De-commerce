@@ -19,7 +19,7 @@
           <li><router-link to="/privacy-policy">Privacy Policy</router-link></li>
         </div>
         <span class="footer-logo">
-          <img src="../assets/JMerchant-Logo.jpg" alt="JMerchant-Logo">
+          <img src="../assets/JMerchant-Logo.png" alt="JMerchant-Logo">
         </span>
         <div class="footer-links-right">
           <li><router-link to="/cookie-policy">Cookie Policy</router-link></li>
@@ -212,7 +212,6 @@ export default {
   .footer-logo img {
     width: 80px; /* Adjust size as needed */
     height: auto; /* Maintain aspect ratio */
-    border: 1.4px solid var(--paragraph-color);
   }
 
   @media (max-width: 992px) {
