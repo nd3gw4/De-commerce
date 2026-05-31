@@ -40,5 +40,8 @@ htmlcov/
 
 # Node
 node_modules/
-De_Commerce-TO-DO
+requirements.txt
+TESTING_GUIDE.md
+README.md
 API.md
+ADMIN_SETUP.md
