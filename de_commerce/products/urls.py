@@ -24,7 +24,7 @@ from django.urls import path, include
 from django.contrib.auth import views as auth_views
 from . import views
 from rest_framework.routers import DefaultRouter
-from .api import CategoryViewSet, ProductViewSet, CartViewSet, OrderViewSet, create_order, logout_view
+from .api import CategoryViewSet, ProductViewSet, CartViewSet, OrderViewSet, create_order, logout_view, AdminProductImportViewSet
 
 
 app_name = 'products'
@@ -45,6 +45,10 @@ router.register(r'api/carts', CartViewSet, basename='cart')
 
 # OrderViewSet: GET/POST /api/orders/ (IsAuthenticated - filtered to current user only)
 router.register(r'api/orders', OrderViewSet, basename='order')
+
+# Admin-only endpoints (REQUIRES SUPERUSER/STAFF)
+# AdminProductImportViewSet: POST /api/admin/import-products/ (IsAdminUser)
+router.register(r'api/admin', AdminProductImportViewSet, basename='admin')
 
 urlpatterns = [
     # POST /api/register/ - Register new user account (AllowAny - no login required)

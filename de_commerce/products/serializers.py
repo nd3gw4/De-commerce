@@ -150,7 +150,8 @@ class OrderSerializer(serializers.ModelSerializer):
 class UserSerializer(serializers.ModelSerializer):
     """
     Minimal serializer for authenticated user profile data returned by /api/me/
+    Includes is_superuser flag to indicate if user has admin privileges
     """
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'date_joined']
+        fields = ['id', 'username', 'email', 'date_joined', 'is_superuser']

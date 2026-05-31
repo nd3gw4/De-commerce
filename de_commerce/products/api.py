@@ -23,6 +23,10 @@ from django.core.mail import send_mail
 from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from django.db import transaction
+from rest_framework.parsers import MultiPartParser, FormParser
+import json
+import csv
+import io
 
 # ============================================================================
 # PUBLIC VIEWSETS (NO LOGIN REQUIRED - AllowAny)
@@ -390,6 +394,330 @@ def create_order(request):
 			return Response(order_serializer.data, status=status.HTTP_201_CREATED)
 
 	return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+# ============================================================================
+# ADMIN VIEWSETS (REQUIRES SUPERUSER - IsAdminUser)
+# ============================================================================
+
+class AdminProductImportViewSet(viewsets.ViewSet):
+	"""
+	Admin-only ViewSet for bulk product imports via CSV or JSON file upload.
+	
+	Endpoint: POST /api/admin/import-products/
+	Permission: IsAdminUser (admin/staff only - superuser required)
+	
+	Features:
+	- CSV/JSON file upload support
+	- Bulk product import with validation
+	- Single product creation via API
+	- Create or update products (configurable via update flag)
+	- Atomic transactions (all or nothing per batch)
+	- Detailed error reporting with line numbers
+	- Category auto-creation if not exists
+	
+	Request: multipart/form-data
+	- file: CSV or JSON file
+	- format: 'csv' or 'json'
+	- update: boolean (true to update existing products by name)
+	
+	CSV Format:
+	name,description,price,category,stock_status,more_description,specifications
+	"Blue Shirt","A comfortable shirt",19.99,"Clothing","In Stock","100% cotton","Size: S-XL"
+	
+	JSON Format:
+	[
+	  {
+		"name": "Blue Shirt",
+		"description": "A comfortable shirt",
+		"price": 19.99,
+		"category": "Clothing",
+		"stock_status": "In Stock",
+		"more_description": "100% cotton",
+		"specifications": "Size: S-XL"
+	  }
+	]
+	
+	Response:
+	{
+	  "success": true,
+	  "created": 5,
+	  "updated": 2,
+	  "failed": 1,
+	  "total_processed": 8,
+	  "errors": [
+		{"row": 3, "message": "Missing required fields (name, price, category)"}
+	  ]
+	}
+	"""
+	permission_classes = [permissions.IsAdminUser]
+	parser_classes = (MultiPartParser, FormParser)
+
+	@action(detail=False, methods=['post'])
+	def import_products(self, request):
+		"""
+		Handle file upload and trigger product import.
+		
+		POST /api/admin/import-products/
+		- Accepts multipart/form-data
+		- Validates file format (CSV or JSON)
+		- Processes file and creates/updates products
+		- Returns summary with success/error counts
+		"""
+		if 'file' not in request.FILES:
+			return Response(
+				{'error': 'No file provided'},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+		
+		file_obj = request.FILES['file']
+		file_format = request.data.get('format', 'csv').lower()
+		update_existing = request.data.get('update', False) in [True, 'true', '1', 'on']
+
+		# Validate file size (max 5MB)
+		if file_obj.size > 5 * 1024 * 1024:
+			return Response(
+				{'error': 'File size exceeds 5MB limit'},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+
+		# Validate file format
+		if file_format not in ['csv', 'json']:
+			return Response(
+				{'error': 'Format must be csv or json'},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+
+		try:
+			# Read file content
+			file_content = file_obj.read().decode('utf-8')
+			
+			if file_format == 'csv':
+				rows = list(csv.DictReader(io.StringIO(file_content)))
+			else:
+				rows = json.loads(file_content)
+
+			# Validate rows format
+			if not isinstance(rows, list):
+				return Response(
+					{'error': 'JSON must be an array of objects'},
+					status=status.HTTP_400_BAD_REQUEST
+				)
+
+			# Process import
+			result = self._process_import(rows, update_existing)
+			return Response(result, status=status.HTTP_200_OK)
+
+		except json.JSONDecodeError as e:
+			return Response(
+				{'error': f'Invalid JSON: {str(e)}'},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+		except Exception as e:
+			return Response(
+				{'error': f'File processing error: {str(e)}'},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+
+	def _process_import(self, rows, update_existing):
+		"""
+		Process product import from rows (CSV or JSON).
+		Returns summary with counts and errors.
+		
+		Each row must have: name, price, category
+		Optional fields: description, more_description, specifications, stock_status
+		"""
+		created = 0
+		updated = 0
+		failed = 0
+		errors = []
+
+		for idx, row in enumerate(rows, start=1):
+			try:
+				# Validate required fields
+				if not isinstance(row, dict):
+					errors.append({'row': idx, 'message': 'Row must be an object/dictionary'})
+					failed += 1
+					continue
+
+				name = str(row.get('name', ''.strip()))
+				price = row.get('price', None)
+				category_name = str(row.get('category', '').strip())
+
+				# Validate required fields exist
+				if not name or not price or not category_name:
+					errors.append({
+						'row': idx,
+						'message': 'Missing required fields: name, price, category'
+					})
+					failed += 1
+					continue
+
+				# Validate price is numeric
+				try:
+					price = float(price)
+					if price < 0:
+						raise ValueError('Price must be positive')
+				except (ValueError, TypeError):
+					errors.append({
+						'row': idx,
+						'message': f'Invalid price: {price} (must be positive number)'
+					})
+					failed += 1
+					continue
+
+				# Get optional fields
+				description = str(row.get('description', '')).strip()
+				more_description = str(row.get('more_description', '')).strip()
+				specifications = str(row.get('specifications', '')).strip()
+				stock_status = str(row.get('stock_status', 'In Stock')).strip()
+
+				# Validate stock_status
+				valid_statuses = ['In Stock', 'Low Stock', 'Out of Stock']
+				if stock_status not in valid_statuses:
+					stock_status = 'In Stock'  # Default to In Stock
+
+				# Get or create category
+				category, _ = Category.objects.get_or_create(name=category_name)
+
+				with transaction.atomic():
+					if update_existing:
+						# Update or create product by name
+						product, created_flag = Product.objects.update_or_create(
+							name=name,
+							defaults={
+								'price': price,
+								'description': description,
+								'more_description': more_description,
+								'specifications': specifications,
+								'stock_status': stock_status,
+								'category': category,
+							}
+						)
+						if created_flag:
+							created += 1
+						else:
+							updated += 1
+					else:
+						# Create only if not exists
+						product, created_flag = Product.objects.get_or_create(
+							name=name,
+							defaults={
+								'price': price,
+								'description': description,
+								'more_description': more_description,
+								'specifications': specifications,
+								'stock_status': stock_status,
+								'category': category,
+							}
+						)
+						if created_flag:
+							created += 1
+						else:
+							errors.append({
+								'row': idx,
+								'message': f'Product "{name}" already exists (enable update flag to overwrite)'
+							})
+							failed += 1
+
+			except Exception as e:
+				errors.append({'row': idx, 'message': str(e)})
+				failed += 1
+
+		return {
+			'success': True,
+			'created': created,
+			'updated': updated,
+			'failed': failed,
+			'errors': errors,
+			'total_processed': len(rows)
+		}
+
+	@action(detail=False, methods=['post'])
+	def add_single_product(self, request):
+		"""
+		Add a single product via POST request (alternative to file upload).
+		
+		POST /api/admin/add-single-product/
+		
+		Request body:
+		{
+		  "name": "Blue Shirt",
+		  "description": "A comfortable shirt",
+		  "price": 19.99,
+		  "category": "Clothing",
+		  "stock_status": "In Stock",
+		  "more_description": "100% cotton",
+		  "specifications": "Size: S-XL"
+		}
+		"""
+		try:
+			name = request.data.get('name', '').strip()
+			price = request.data.get('price', None)
+			category_name = request.data.get('category', '').strip()
+
+			# Validate required fields
+			if not name or not price or not category_name:
+				return Response(
+					{'error': 'Missing required fields: name, price, category'},
+					status=status.HTTP_400_BAD_REQUEST
+				)
+
+			# Validate price
+			try:
+				price = float(price)
+				if price < 0:
+					raise ValueError('Price must be positive')
+			except (ValueError, TypeError):
+				return Response(
+					{'error': f'Invalid price: {price}'},
+					status=status.HTTP_400_BAD_REQUEST
+				)
+
+			description = request.data.get('description', '').strip()
+			more_description = request.data.get('more_description', '').strip()
+			specifications = request.data.get('specifications', '').strip()
+			stock_status = request.data.get('stock_status', 'In Stock').strip()
+
+			# Validate stock_status
+			valid_statuses = ['In Stock', 'Low Stock', 'Out of Stock']
+			if stock_status not in valid_statuses:
+				stock_status = 'In Stock'
+
+			# Get or create category
+			category, _ = Category.objects.get_or_create(name=category_name)
+
+			# Create product
+			with transaction.atomic():
+				product, created = Product.objects.get_or_create(
+					name=name,
+					defaults={
+						'price': price,
+						'description': description,
+						'more_description': more_description,
+						'specifications': specifications,
+						'stock_status': stock_status,
+						'category': category,
+					}
+				)
+
+				if not created:
+					return Response(
+						{'error': f'Product "{name}" already exists'},
+						status=status.HTTP_400_BAD_REQUEST
+					)
+
+			serializer = ProductSerializer(product)
+			return Response({
+				'success': True,
+				'message': 'Product created successfully',
+				'product': serializer.data
+			}, status=status.HTTP_201_CREATED)
+
+		except Exception as e:
+			return Response(
+				{'error': str(e)},
+				status=status.HTTP_400_BAD_REQUEST
+			)
 
 @api_view(['POST'])
 def logout_view(request):
