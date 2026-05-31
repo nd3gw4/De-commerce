@@ -41,8 +41,9 @@ async function handleLogin() {
   loading.value = true;
   error.value = '';
   try {
-    await loginUser(username.value, password.value);
-    auth.login();
+    const response = await loginUser(username.value, password.value);
+    // Pass user data from API response to auth store
+    auth.login(response.data.user);
     router.push('/');
   } catch (err) {
     if (err.response) {

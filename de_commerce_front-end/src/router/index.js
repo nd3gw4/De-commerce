@@ -15,6 +15,7 @@ import CookiePolicy from '../views/CookiePolicy.vue';
 import TermsOfUse from '../views/TermsOfUse.vue';
 import PrivacyPolicy from '../views/PrivacyPolicy.vue';
 import Contact from '../views/Contact.vue';
+import AdminImport from '../views/AdminImport.vue';
 import { useAuthStore } from '../store/auth';
 
 const routes = [
@@ -29,6 +30,7 @@ const routes = [
   { path: '/login', name: 'Login', component: Login },
   { path: '/register', name: 'Register', component: Register },
   { path: '/reset-password', name: 'ResetPassword', component: ResetPassword },
+  { path: '/admin/import', name: 'AdminImport', component: AdminImport, meta: { requiresAuth: true, requiresAdmin: true } },
   { path: '/cookie-policy', name: 'CookiePolicy', component: CookiePolicy },
   { path: '/terms-of-use', name: 'TermsOfUse', component: TermsOfUse },
   { path: '/privacy-policy', name: 'PrivacyPolicy', component: PrivacyPolicy },
@@ -46,6 +48,12 @@ router.beforeEach((to, from, next) => {
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     next({ name: 'Login', query: { next: to.fullPath } });
+    return;
+  }
+
+  // Check for admin-only routes
+  if (to.meta.requiresAdmin && !auth.isAdmin) {
+    next({ name: 'Home' });  // Redirect non-admins to home page
     return;
   }
 
