@@ -85,7 +85,21 @@ class ProductSerializer(serializers.ModelSerializer):
     category = CategorySerializer(read_only=True)
     class Meta:
         model = Product
-        fields = ['id', 'name', 'description', 'price', 'category', 'image', 'more_description', 'specifications', 'stock_status']
+        fields = [
+            'id',
+            'name',
+            'description',
+            'price',
+            'category',
+            'image',
+            'image1',
+            'image2',
+            'image3',
+            'image4',
+            'more_description',
+            'specifications',
+            'stock_status'
+        ]
 
 # ============================================================================
 # CART SERIALIZERS (REQUIRES LOGIN - IsAuthenticated)

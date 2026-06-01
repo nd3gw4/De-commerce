@@ -24,10 +24,14 @@ from django.core.mail import send_mail
 from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from django.db import transaction
-from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from django.core.files.base import ContentFile
 import json
 import csv
 import io
+import os
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
 
 # ============================================================================
 # PUBLIC VIEWSETS (NO LOGIN REQUIRED - AllowAny)
@@ -451,7 +455,7 @@ class AdminProductImportViewSet(viewsets.ViewSet):
 	}
 	"""
 	permission_classes = [permissions.IsAdminUser]
-	parser_classes = (MultiPartParser, FormParser)
+	parser_classes = (MultiPartParser, FormParser, JSONParser)
 
 	@action(detail=False, methods=['post'])
 	def import_products(self, request):
@@ -519,6 +523,40 @@ class AdminProductImportViewSet(viewsets.ViewSet):
 				status=status.HTTP_400_BAD_REQUEST
 			)
 
+	def _download_image_from_url(self, url):
+		"""
+		Download a public image URL and return a Django ContentFile.
+		"""
+		if not url or not isinstance(url, str):
+			return None
+
+		url = url.strip()
+		if not url.lower().startswith(('http://', 'https://')):
+			return None
+
+		try:
+			request = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+			with urlopen(request, timeout=15) as response:
+				if response.getcode() != 200:
+					return None
+				image_data = response.read()
+		except Exception:
+			return None
+
+		parsed = urlparse(url)
+		filename = os.path.basename(parsed.path) or 'image.jpg'
+		if '.' not in filename:
+			filename += '.jpg'
+		return ContentFile(image_data, name=filename)
+
+	def _extract_image_urls(self, row):
+		image_fields = {}
+		for index in range(1, 5):
+			raw_value = row.get(f'image{index}') or row.get(f'image_{index}')
+			if raw_value:
+				image_fields[f'image{index}'] = str(raw_value).strip()
+		return image_fields
+
 	def _process_import(self, rows, update_existing):
 		"""
 		Process product import from rows (CSV or JSON).
@@ -580,6 +618,8 @@ class AdminProductImportViewSet(viewsets.ViewSet):
 				# Get or create category
 				category, _ = Category.objects.get_or_create(name=category_name)
 
+				row_images = self._extract_image_urls(row)
+
 				with transaction.atomic():
 					if update_existing:
 						# Update or create product by name
@@ -598,6 +638,24 @@ class AdminProductImportViewSet(viewsets.ViewSet):
 							created += 1
 						else:
 							updated += 1
+						# Save any product image URLs provided in JSON/CSV rows
+						for field_name, image_url in row_images.items():
+							if image_url:
+								image_file = self._download_image_from_url(image_url)
+								if image_file:
+									setattr(product, field_name, image_file)
+								else:
+									errors.append({
+									'row': idx,
+									'message': f'Unable to download image URL for {field_name}: {image_url}'
+									})
+						if any(getattr(product, f'image{image_index}') for image_index in range(1, 5)):
+							for image_index in range(1, 5):
+								image_value = getattr(product, f'image{image_index}')
+								if image_value:
+									product.image = image_value
+									break
+						product.save()
 					else:
 						# Create only if not exists
 						product, created_flag = Product.objects.get_or_create(
@@ -613,6 +671,23 @@ class AdminProductImportViewSet(viewsets.ViewSet):
 						)
 						if created_flag:
 							created += 1
+							for field_name, image_url in row_images.items():
+								if image_url:
+									image_file = self._download_image_from_url(image_url)
+									if image_file:
+										setattr(product, field_name, image_file)
+									else:
+										errors.append({
+										'row': idx,
+										'message': f'Unable to download image URL for {field_name}: {image_url}'
+										})
+							if any(getattr(product, f'image{image_index}') for image_index in range(1, 5)):
+								for image_index in range(1, 5):
+									image_value = getattr(product, f'image{image_index}')
+									if image_value:
+										product.image = image_value
+										break
+							product.save()
 						else:
 							errors.append({
 								'row': idx,
@@ -687,7 +762,14 @@ class AdminProductImportViewSet(viewsets.ViewSet):
 			# Get or create category
 			category, _ = Category.objects.get_or_create(name=category_name)
 
-			# Create product
+			# Extract uploaded image files
+			image_files = {}
+			for index in range(1, 5):
+				file = request.FILES.get(f'image{index}')
+				if file:
+					image_files[f'image{index}'] = file
+
+			# Create or update product
 			with transaction.atomic():
 				product, created = Product.objects.get_or_create(
 					name=name,
@@ -702,10 +784,23 @@ class AdminProductImportViewSet(viewsets.ViewSet):
 				)
 
 				if not created:
-					return Response(
-						{'error': f'Product "{name}" already exists'},
-						status=status.HTTP_400_BAD_REQUEST
-					)
+					product.price = price
+					product.description = description
+					product.more_description = more_description
+					product.specifications = specifications
+					product.stock_status = stock_status
+					product.category = category
+
+				for field_name, image_file in image_files.items():
+					setattr(product, field_name, image_file)
+
+				for image_index in range(1, 5):
+					image_value = getattr(product, f'image{image_index}')
+					if image_value:
+						product.image = image_value
+						break
+
+				product.save()
 
 			serializer = ProductSerializer(product)
 			return Response({
@@ -714,6 +809,34 @@ class AdminProductImportViewSet(viewsets.ViewSet):
 				'product': serializer.data
 			}, status=status.HTTP_201_CREATED)
 
+		except Exception as e:
+			return Response(
+				{'error': str(e)},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+
+	@action(detail=False, methods=['post'], url_path='delete-product')
+	def delete_product(self, request):
+		product_id = request.data.get('id') or request.data.get('product_id')
+		if not product_id:
+			return Response(
+				{'error': 'Product id is required'},
+				status=status.HTTP_400_BAD_REQUEST
+			)
+
+		try:
+			product = Product.objects.get(id=product_id)
+			name = product.name
+			product.delete()
+			return Response(
+				{'success': True, 'message': f'Product "{name}" deleted successfully.'},
+				status=status.HTTP_200_OK
+			)
+		except Product.DoesNotExist:
+			return Response(
+				{'error': 'Product not found'},
+				status=status.HTTP_404_NOT_FOUND
+			)
 		except Exception as e:
 			return Response(
 				{'error': str(e)},
