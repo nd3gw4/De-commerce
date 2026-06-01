@@ -15,7 +15,7 @@ import CookiePolicy from '../views/CookiePolicy.vue';
 import TermsOfUse from '../views/TermsOfUse.vue';
 import PrivacyPolicy from '../views/PrivacyPolicy.vue';
 import Contact from '../views/Contact.vue';
-import AdminImport from '../views/AdminImport.vue';
+import AdminDashboard from '../views/AdminDashboard.vue';
 import { useAuthStore } from '../store/auth';
 
 const routes = [
@@ -30,7 +30,8 @@ const routes = [
   { path: '/login', name: 'Login', component: Login },
   { path: '/register', name: 'Register', component: Register },
   { path: '/reset-password', name: 'ResetPassword', component: ResetPassword },
-  { path: '/admin/import', name: 'AdminImport', component: AdminImport, meta: { requiresAuth: true, requiresAdmin: true } },
+  { path: '/admin', name: 'AdminDashboard', component: AdminDashboard, meta: { requiresAuth: true, requiresAdmin: true } },
+  { path: '/admin/import', redirect: { name: 'AdminDashboard' } },
   { path: '/cookie-policy', name: 'CookiePolicy', component: CookiePolicy },
   { path: '/terms-of-use', name: 'TermsOfUse', component: TermsOfUse },
   { path: '/privacy-policy', name: 'PrivacyPolicy', component: PrivacyPolicy },
@@ -58,12 +59,12 @@ router.beforeEach((to, from, next) => {
   }
 
   if ((to.name === 'Login' || to.name === 'Register') && auth.isAuthenticated) {
-    next({ name: 'Profile' });
+    next(auth.isAdmin ? { name: 'AdminDashboard' } : { name: 'Profile' });
     return;
   }
 
   if (to.name === 'Home' && auth.isAuthenticated) {
-    next({ name: 'Profile' });
+    next(auth.isAdmin ? { name: 'AdminDashboard' } : { name: 'Profile' });
     return;
   }
 

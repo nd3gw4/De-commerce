@@ -11,13 +11,10 @@
         :alt="product.name"
         class="product-image"
       />
-      <!-- Fallback Placeholder Image if No Product Image -->
-      <img
-        v-else
-        :src="placeholderImg"
-        alt="No image available"
-        class="product-image placeholder-image"
-      />
+      <!-- Fallback Placeholder if No Product Image -->
+      <div v-else class="image-placeholder">
+        <span>No Image Available</span>
+      </div>
     </div>
 
     <!-- Product Information Section -->
@@ -78,7 +75,6 @@
  */
 
 import { ref } from 'vue';
-import placeholderImg from '../assets/img/WheatBran.jpg';
 
 /**
  * Props: Component inputs
@@ -154,6 +150,21 @@ function toggleCart() {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.image-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--background-color);
+  border: 1px solid var(--text-color);
+  color: var(--text-color);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-align: center;
+  padding: 1rem;
 }
 
 .product-content {

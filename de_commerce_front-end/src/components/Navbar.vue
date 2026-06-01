@@ -24,19 +24,15 @@
           </router-link>
         </li>
 
-        <!-- Cart Link - ONLY FOR AUTHENTICATED USERS -->
-        <!-- v-if="isAuthenticated": Only renders if user is logged in -->
-        <!-- Links to /cart route where user can review shopping cart -->
-        <li class="nav-item" v-if="isAuthenticated">
+        <!-- Cart Link - ONLY FOR NON-ADMIN AUTHENTICATED USERS -->
+        <li class="nav-item" v-if="isAuthenticated && !isAdmin">
           <router-link class="nav-link" to="/cart" active-class="active-page">
             Cart
           </router-link>
         </li>
 
-        <!-- Orders Link - ONLY FOR AUTHENTICATED USERS -->
-        <!-- v-if="isAuthenticated": Only renders if user is logged in -->
-        <!-- Links to /orders route where user can view order history -->
-        <li class="nav-item" v-if="isAuthenticated">
+        <!-- Orders Link - ONLY FOR NON-ADMIN AUTHENTICATED USERS -->
+        <li class="nav-item" v-if="isAuthenticated && !isAdmin">
           <router-link class="nav-link" to="/orders" active-class="active-page">
             Orders
           </router-link>
@@ -53,9 +49,15 @@
         <!-- Authenticated User Menu: Profile and Logout -->
         <!-- v-else (implicit from v-if): Show for logged-in users -->
         <template v-else>
+          <li class="nav-item" v-if="isAdmin">
+            <router-link class="nav-link" to="/admin" active-class="active-page">
+              Admin
+            </router-link>
+          </li>
+
           <!-- Profile Link - ONLY FOR AUTHENTICATED USERS -->
           <!-- Links to /profile route with user information and order history -->
-          <li class="nav-item">
+          <li class="nav-item" v-if="!isAdmin">
             <router-link class="nav-link" to="/profile" active-class="active-page">
               Profile
             </router-link>
@@ -96,7 +98,7 @@ const auth = useAuthStore();
  * Allows using isAuthenticated directly in template
  * When auth.isAuthenticated changes, template automatically updates
  */
-const { isAuthenticated } = storeToRefs(auth);
+const { isAuthenticated, isAdmin } = storeToRefs(auth);
 const router = useRouter();
 
 /**

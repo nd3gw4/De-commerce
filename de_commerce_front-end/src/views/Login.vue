@@ -26,7 +26,7 @@
 
 <script setup>
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
 import { loginUser } from '../services/auth';
 import { useAuthStore } from '../store/auth';
 
@@ -35,6 +35,7 @@ const password = ref('');
 const loading = ref(false);
 const error = ref('');
 const router = useRouter();
+const route = useRoute();
 const auth = useAuthStore();
 
 async function handleLogin() {
@@ -44,7 +45,11 @@ async function handleLogin() {
     const response = await loginUser(username.value, password.value);
     // Pass user data from API response to auth store
     auth.login(response.data.user);
-    router.push('/');
+    const nextRoute = route.query.next;
+    const redirectTarget = auth.isAdmin
+      ? { name: 'AdminDashboard' }
+      : (typeof nextRoute === 'string' && nextRoute) || { name: 'Profile' };
+    router.push(redirectTarget);
   } catch (err) {
     if (err.response) {
       const { status, data } = err.response;
