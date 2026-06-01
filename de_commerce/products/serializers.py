@@ -18,7 +18,6 @@ All serializers support the API endpoints defined in api.py
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from .models import Category, Product, Cart, CartItem, Order, OrderItem
-from django.contrib.auth.models import User
 
 # ============================================================================
 # AUTHENTICATION SERIALIZERS (NO LOGIN REQUIRED for registration/login)
@@ -155,3 +154,61 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'date_joined', 'is_superuser']
+
+
+class AdminCreateSerializer(serializers.Serializer):
+    """
+    Serializer for creating a new admin user via admin dashboard.
+    """
+    username = serializers.CharField()
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    password2 = serializers.CharField(write_only=True)
+
+    def validate(self, data):
+        if data['password'] != data['password2']:
+            raise serializers.ValidationError('Passwords do not match.')
+        if User.objects.filter(username=data['username']).exists():
+            raise serializers.ValidationError('Username already exists.')
+        if User.objects.filter(email=data['email']).exists():
+            raise serializers.ValidationError('Email already exists.')
+        return data
+
+    def create(self, validated_data):
+        return User.objects.create_superuser(
+            username=validated_data['username'],
+            email=validated_data['email'],
+            password=validated_data['password']
+        )
+
+
+class AdminOrderSerializer(serializers.ModelSerializer):
+    """
+    Serializer for admin order listing, includes user details and totals.
+    """
+    user = UserSerializer(read_only=True)
+    items = OrderItemSerializer(many=True, read_only=True)
+    total_items = serializers.SerializerMethodField()
+    total_price = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Order
+        fields = [
+            'id',
+            'user',
+            'created_at',
+            'updated_at',
+            'shipping_address',
+            'phone_number',
+            'payment_method',
+            'status',
+            'items',
+            'total_items',
+            'total_price'
+        ]
+
+    def get_total_items(self, obj):
+        return obj.total_items()
+
+    def get_total_price(self, obj):
+        return obj.total_price()

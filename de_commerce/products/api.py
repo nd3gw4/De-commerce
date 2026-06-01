@@ -18,7 +18,8 @@ Permission system:
 
 from rest_framework import viewsets, permissions, status
 from .models import Category, Product, Cart, Order, OrderItem
-from .serializers import CategorySerializer, ProductSerializer, CartSerializer, OrderSerializer
+from .serializers import CategorySerializer, ProductSerializer, CartSerializer, OrderSerializer, UserSerializer, AdminOrderSerializer, AdminCreateSerializer
+from django.contrib.auth.models import User
 from django.core.mail import send_mail
 from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
@@ -718,6 +719,60 @@ class AdminProductImportViewSet(viewsets.ViewSet):
 				{'error': str(e)},
 				status=status.HTTP_400_BAD_REQUEST
 			)
+
+	@action(detail=False, methods=['get'], url_path='orders')
+	def orders(self, request):
+		"""
+		List all orders for admin analysis.
+		GET /api/admin/orders/
+		"""
+		orders = Order.objects.select_related('user').prefetch_related('items__product').all().order_by('-created_at')
+		serializer = AdminOrderSerializer(orders, many=True)
+		return Response(serializer.data, status=status.HTTP_200_OK)
+
+	@action(detail=False, methods=['get'], url_path='orders-summary')
+	def orders_summary(self, request):
+		"""
+		Return high-level order statistics for admin dashboard.
+		GET /api/admin/orders-summary/
+		"""
+		orders = Order.objects.all()
+		total_orders = orders.count()
+		status_counts = {
+			'ordered': orders.filter(status='ordered').count(),
+			'pending': orders.filter(status='pending').count(),
+			'shipped': orders.filter(status='shipped').count(),
+			'delivered': orders.filter(status='delivered').count(),
+			'cancelled': orders.filter(status='cancelled').count(),
+		}
+		total_revenue = sum(order.total_price() for order in orders)
+		total_customers = User.objects.filter(order__isnull=False).distinct().count()
+
+		return Response({
+			'success': True,
+			'total_orders': total_orders,
+			'total_revenue': float(total_revenue),
+			'status_counts': status_counts,
+			'total_customers': total_customers,
+		}, status=status.HTTP_200_OK)
+
+	@action(detail=False, methods=['post'], url_path='create-admin')
+	def create_admin(self, request):
+		"""
+		Create a new admin user.
+		POST /api/admin/create-admin/
+		"""
+		serializer = AdminCreateSerializer(data=request.data)
+		if serializer.is_valid():
+			serializer.save()
+			return Response({
+				'success': True,
+				'message': 'Admin user created successfully.'
+			}, status=status.HTTP_201_CREATED)
+		return Response({
+			'success': False,
+			'errors': serializer.errors
+		}, status=status.HTTP_400_BAD_REQUEST)
 
 @api_view(['POST'])
 def logout_view(request):
