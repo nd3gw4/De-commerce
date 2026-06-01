@@ -17,19 +17,25 @@
               class="nav-link"
               :class="{ active: activeTab === 'upload' }"
               type="button"
-              @click="activeTab = 'upload'"
+              @click="setActiveTab('upload')"
             >Product Upload</button>
+            <button
+              class="nav-link"
+              :class="{ active: activeTab === 'products' }"
+              type="button"
+              @click="setActiveTab('products')"
+            >Product List</button>
             <button
               class="nav-link"
               :class="{ active: activeTab === 'orders' }"
               type="button"
-              @click="activeTab = 'orders'"
+              @click="setActiveTab('orders')"
             >Order Analytics</button>
             <button
               class="nav-link"
               :class="{ active: activeTab === 'admins' }"
               type="button"
-              @click="activeTab = 'admins'"
+              @click="setActiveTab('admins')"
             >Admin Users</button>
           </div>
         </div>
@@ -44,6 +50,7 @@
               </div>
               <div class="card-body">
                 <p class="text-muted">Upload a CSV or JSON file to import products in bulk.</p>
+                <p class="text-muted small">Optional image1..image4 fields may contain public image URLs to attach up to four images per imported product.</p>
                 <form @submit.prevent="handleBulkImport">
                   <div class="mb-3">
                     <label class="form-label fw-bold" for="admin-file">Select File</label>
@@ -154,6 +161,23 @@
                     <label class="form-label fw-bold" for="admin-specifications">Specifications</label>
                     <textarea id="admin-specifications" class="form-control" v-model="singleForm.specifications" rows="2"></textarea>
                   </div>
+
+                  <div class="mb-3">
+                    <label class="form-label fw-bold">Product Images</label>
+                    <div class="row g-3">
+                      <div class="col-6 col-md-3" v-for="index in 4" :key="index">
+                        <input
+                          :id="`admin-image-${index}`"
+                          type="file"
+                          class="form-control"
+                          accept="image/*"
+                          @change="handleImageChange(index - 1, $event)"
+                        />
+                        <small class="text-muted">Image {{ index }} (optional)</small>
+                      </div>
+                    </div>
+                  </div>
+
                   <button class="btn btn-success" type="submit" :disabled="singleLoading">
                     <span v-if="!singleLoading"><i class="bi bi-plus-circle"></i> Add Product</span>
                     <span v-else>
@@ -168,6 +192,68 @@
                     <h5 class="alert-heading">{{ singleResult.success ? 'Success' : 'Error' }}</h5>
                     <p class="mb-0">{{ singleResult.message || singleResult.error }}</p>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="activeTab === 'products'" class="tab-pane fade show active">
+        <div class="row g-4">
+          <div class="col-12">
+            <div class="card shadow-sm py-4 px-4">
+              <div class="d-flex justify-content-between align-items-start mb-4">
+                <div>
+                  <h4>Product List</h4>
+                  <p class="admin-info-text mb-0">View all products and remove them directly from the website.</p>
+                </div>
+                <button class="btn btn-outline-secondary" @click="reloadProducts">Refresh</button>
+              </div>
+
+              <div v-if="productsLoading" class="text-center py-4">
+                <div class="spinner-border" role="status"></div>
+              </div>
+
+              <div v-else>
+                <div v-if="productsError" class="alert alert-danger">
+                  {{ productsError }}
+                </div>
+
+                <div v-if="productResult" class="mt-3">
+                  <div :class="['alert', productResult.success ? 'alert-success' : 'alert-danger']" role="alert">
+                    {{ productResult.success ? productResult.message : productResult.error }}
+                  </div>
+                </div>
+
+                <div class="table-responsive">
+                  <table class="table table-hover admin-orders-table align-middle">
+                    <thead class="table-light">
+                      <tr>
+                        <th>ID</th>
+                        <th>Name</th>
+                        <th>Category</th>
+                        <th>Price</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="product in products" :key="product.id">
+                        <td>#{{ product.id }}</td>
+                        <td>{{ product.name }}</td>
+                        <td>{{ product.category?.name || 'Uncategorized' }}</td>
+                        <td>${{ parseFloat(product.price).toFixed(2) }}</td>
+                        <td>{{ product.stock_status || 'N/A' }}</td>
+                        <td>
+                          <button class="btn btn-sm btn-danger" @click="deleteProduct(product.id)">Delete</button>
+                        </td>
+                      </tr>
+                      <tr v-if="!products.length">
+                        <td colspan="6" class="text-muted text-center">No products found.</td>
+                      </tr>
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
@@ -303,7 +389,8 @@
 
 <script>
 import { useAuthStore } from '@/store/auth';
-import { fetchAdminOrders, fetchAdminOrderSummary, createAdminUser } from '@/services/admin';
+import { fetchAdminOrders, fetchAdminOrderSummary, createAdminUser, deleteAdminProduct } from '@/services/admin';
+import { fetchProducts } from '@/services/products';
 import api from '@/services/api';
 
 export default {
@@ -329,6 +416,11 @@ export default {
       },
       singleLoading: false,
       singleResult: null,
+      imageFiles: [null, null, null, null],
+      products: [],
+      productsLoading: false,
+      productsError: null,
+      productResult: null,
       orders: [],
       orderStats: {
         'Total Orders': 0,
@@ -393,8 +485,23 @@ export default {
     },
     async handleAddProduct() {
       this.singleLoading = true;
+      const formData = new FormData();
+      formData.append('name', this.singleForm.name);
+      formData.append('price', this.singleForm.price);
+      formData.append('category', this.singleForm.category);
+      formData.append('stock_status', this.singleForm.stock_status);
+      formData.append('description', this.singleForm.description);
+      formData.append('more_description', this.singleForm.more_description);
+      formData.append('specifications', this.singleForm.specifications);
+
+      this.imageFiles.forEach((file, index) => {
+        if (file) {
+          formData.append(`image${index + 1}`, file);
+        }
+      });
+
       try {
-        const response = await api.post('admin/add_single_product/', this.singleForm);
+        const response = await api.post('admin/add_single_product/', formData);
         this.singleResult = response.data;
       } catch (error) {
         this.singleResult = {
@@ -403,6 +510,43 @@ export default {
         };
       } finally {
         this.singleLoading = false;
+      }
+    },
+    handleImageChange(index, event) {
+      this.imageFiles.splice(index, 1, event.target.files[0] || null);
+    },
+    async setActiveTab(tab) {
+      this.activeTab = tab;
+      if (tab === 'products') {
+        await this.reloadProducts();
+      }
+    },
+    async reloadProducts() {
+      this.productsLoading = true;
+      this.productsError = null;
+      try {
+        const response = await fetchProducts();
+        this.products = response.data;
+      } catch (error) {
+        this.productsError = error.response?.data?.error || error.message || 'Unable to load products.';
+      } finally {
+        this.productsLoading = false;
+      }
+    },
+    async deleteProduct(productId) {
+      if (!confirm('Are you sure you want to delete this product?')) {
+        return;
+      }
+      this.productResult = null;
+      try {
+        const response = await deleteAdminProduct(productId);
+        this.productResult = response.data;
+        this.products = this.products.filter(product => product.id !== productId);
+      } catch (error) {
+        this.productResult = {
+          success: false,
+          error: error.response?.data?.error || error.message || 'Failed to delete product.'
+        };
       }
     },
     async handleCreateAdmin() {

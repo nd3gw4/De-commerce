@@ -6,8 +6,8 @@
     <div class="image-container">
       <!-- Display Product Image if Available -->
       <img
-        v-if="product.image"
-        :src="product.image"
+        v-if="productImage"
+        :src="productImage"
         :alt="product.name"
         class="product-image"
       />
@@ -74,7 +74,7 @@
  * ProductDetail fetches product details → Shows "Add to Cart" button if authenticated
  */
 
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 
 /**
  * Props: Component inputs
@@ -104,6 +104,17 @@ function formatPrice(price) {
  * toggleCart(): Toggle cart button state
  * Currently unused - add to cart only on ProductDetail page
  */
+const productImage = computed(() => {
+  return (
+    product.image ||
+    product.image1 ||
+    product.image2 ||
+    product.image3 ||
+    product.image4 ||
+    ''
+  );
+});
+
 function toggleCart() {
   inCart.value = !inCart.value;
 }

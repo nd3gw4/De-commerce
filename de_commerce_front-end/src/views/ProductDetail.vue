@@ -5,7 +5,18 @@
     </div>
     <div class="detail-main">
       <div class="detail-image-container">
-        <img v-if="product.image" :src="product.image" :alt="product.name" class="product-image" />
+        <img v-if="selectedImage" :src="selectedImage" :alt="product.name" class="product-image" />
+      </div>
+      <div class="image-thumbnails mt-3" v-if="images.length > 1">
+        <img
+          v-for="(img, idx) in images"
+          :key="idx"
+          :src="img"
+          :alt="`Product image ${idx + 1}`"
+          class="thumbnail"
+          :class="{ active: selectedIndex === idx }"
+          @click="selectedIndex = idx"
+        />
       </div>
       <div class="detail-info">
         <div class="detail-row">
@@ -67,12 +78,28 @@ const props = defineProps({
 const route = useRoute();
 const router = useRouter();
 const product = ref(null);
+const selectedIndex = ref(0);
 const cart = useCartStore();
 const auth = useAuthStore();
 const { isAuthenticated } = storeToRefs(auth);
 
 const inCart = computed(() => {
   return cart.items.some(i => i.product.id === product.value?.id);
+});
+
+const images = computed(() => {
+  if (!product.value) return [];
+  return [
+    product.value.image,
+    product.value.image1,
+    product.value.image2,
+    product.value.image3,
+    product.value.image4
+  ].filter(Boolean);
+});
+
+const selectedImage = computed(() => {
+  return images.value[selectedIndex.value] || images.value[0] || '';
 });
 
 function formatPrice(price) {
@@ -217,6 +244,26 @@ onMounted(async () => {
   object-fit: contain;
   border-radius: 12px;
   background: var(--background-color);
+}
+
+.image-thumbnails {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-top: 1rem;
+}
+
+.image-thumbnails .thumbnail {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  cursor: pointer;
+}
+
+.image-thumbnails .thumbnail.active {
+  border-color: var(--extra-color);
 }
 
 .detail-info {
