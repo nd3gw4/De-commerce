@@ -5,7 +5,9 @@
       <!-- Brand/Logo - Always Visible -->
       <div class="navbar-brand">
         <!-- router-link: Navigate to home without page reload -->
-        <router-link to="/" class="brandName">Jirani Merchants</router-link>
+        <router-link to="/" class="brandName">
+          <img src="../assets/JMerchant-Logo.png" alt="JMrchant-Logo" class="JMLogo">
+        </router-link>
       </div>
 
       <!-- Navigation Links -->
@@ -180,6 +182,12 @@ onMounted(() => {
   font-family: "Jersey 10", sans-serif;
   font-weight: 600;
   letter-spacing: 3px;
+}
+
+.navbar-brand .brandName .JMLogo {
+  height: 50px;
+  width: auto;
+  margin-right: 12px;
 }
 
 .navbar-nav .nav-item {
