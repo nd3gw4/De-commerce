@@ -80,9 +80,13 @@ import { ref, computed } from 'vue';
  * Props: Component inputs
  * - product: Product object to display {id, name, description, price, category, image}
  */
-const props = defineProps({
+const { product } = defineProps({
   product: Object
 });
+
+// Debug: log incoming product prop when component is created
+// eslint-disable-next-line no-console
+console.debug('ProductCard mounted product id:', product?.id, 'name:', product?.name);
 
 const isAuthenticated = ref(!!localStorage.getItem('isAuthenticated'));
 const inCart = ref(false);
@@ -106,11 +110,11 @@ function formatPrice(price) {
  */
 const productImage = computed(() => {
   return (
-    product.image ||
-    product.image1 ||
-    product.image2 ||
-    product.image3 ||
-    product.image4 ||
+    product?.image ||
+    product?.image1 ||
+    product?.image2 ||
+    product?.image3 ||
+    product?.image4 ||
     ''
   );
 });

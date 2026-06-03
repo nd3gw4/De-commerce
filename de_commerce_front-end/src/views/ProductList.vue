@@ -104,19 +104,52 @@ watch(filteredProducts, () => {
 });
 
 onMounted(async () => {
-  try {
-    const [prodRes, catRes] = await Promise.all([
-      fetchProducts(),
-      fetchCategories()
-    ]);
-    
-    // Logic to handle different API response formats
-    products.value = Array.isArray(prodRes.data) ? prodRes.data : (prodRes.data.results || []);
-    categories.value = Array.isArray(catRes.data) ? catRes.data : (catRes.data.results || []);
-    
-  } catch (error) {
-    console.error('Failed to fetch data:', error);
+  // Helper: extract array from multiple possible response shapes
+  const extractArray = (res) => {
+    if (!res) return [];
+    const d = res.data;
+    if (Array.isArray(d)) return d;
+    if (Array.isArray(res)) return res; // axios sometimes returns bare array in older libs
+    // common wrappers
+    if (d && Array.isArray(d.results)) return d.results;
+    if (d && Array.isArray(d.data)) return d.data;
+    if (d && Array.isArray(d.items)) return d.items;
+    // fallback: try to find first array value on the object
+    if (d && typeof d === 'object') {
+      for (const key of Object.keys(d)) {
+        if (Array.isArray(d[key])) return d[key];
+      }
+    }
+    return [];
+  };
+
+  const [prodResult, catResult] = await Promise.allSettled([
+    fetchProducts(),
+    fetchCategories()
+  ]);
+
+  if (prodResult.status === 'fulfilled') {
+    // eslint-disable-next-line no-console
+    console.debug('Products API response:', prodResult.value);
+    products.value = extractArray(prodResult.value);
+    // quick debug: log counts and sample
+    // eslint-disable-next-line no-console
+    console.debug('Products parsed count:', products.value.length, 'sample:', products.value.slice(0,3));
+  } else {
+    // eslint-disable-next-line no-console
+    console.error('Products fetch failed:', prodResult.reason);
     products.value = [];
+  }
+
+  if (catResult.status === 'fulfilled') {
+    // eslint-disable-next-line no-console
+    console.debug('Categories API response:', catResult.value);
+    categories.value = extractArray(catResult.value);
+    // eslint-disable-next-line no-console
+    console.debug('Categories parsed count:', categories.value.length, 'sample:', categories.value.slice(0,3));
+  } else {
+    // eslint-disable-next-line no-console
+    console.warn('Categories fetch failed (non-fatal):', catResult.reason);
     categories.value = [];
   }
 });
